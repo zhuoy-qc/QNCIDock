@@ -9,18 +9,15 @@ Our code applys to any protein pocket contains at least one postively charge ami
 
 
 
-⚙️ Environment Setup 
+## Installation
 We recommend using Conda to set up the environment.
 
 conda env create -f ringdock_pi-cation_env.yml
 
 conda activate ringdock_pi-cation_env
 
-📁 Preparation 
-Download the ring_sdf_files dir and set the path in the codes to match this dir path
 
-
-📁 Dataset-Based Usage (e.g., PoseBuster)
+## Run
 To run the full pipeline on a dataset like PoseBuster:
 
 Download the dataset of interest.cd to the directory containing all PDB ID dirs.RUN move.py to move the dir containing PI-CATION interaction to "with_pication" dir. 
