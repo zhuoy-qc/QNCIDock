@@ -42,12 +42,6 @@ python 2_model.py
 
 
 
-## Run our pipepline example on a single protein docking task 
-You can also analyze individual PDB files using the utilities provided:
-
-Navigate to the utils/ directory.
-
-
 
 
 ## Citation 
