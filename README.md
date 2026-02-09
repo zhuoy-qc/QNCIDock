@@ -30,7 +30,7 @@ Ensure that all required files are present before running.
 
 
 ## Docking on a single protein
-We demonstrate how to dock 6HA4_T3Y from Dockgen Datset. 
+We first demonstrate how to dock 6HA4_T3Y from Dockgen Datset. 
 
 
 
