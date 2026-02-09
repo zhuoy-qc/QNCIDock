@@ -19,6 +19,16 @@ conda env create -f ringdock_pi-cation_env.yml
 ```bash
 conda activate ringdock_pi-cation_env
 ```
+
+## Data Organization
+PicationDock requires a specific folder structure for proper execution. The dataset should be structured as follows:
+
+Folder Name: typically matching the PDB ID and ligand ID, e.g 6HA4_T3Y
+The following files are required after rDock calculations:
+<folder_name>_ligand.sdf  
+<folder_name>_protein_protonated.pdb  --protonated protein file in pdb format 
+Ensure that all required files are present before running.
+
 ## Docking on a single protein
 We demonstrate how to dock 6HA4_T3Y from Dockgen Datset. 
 
