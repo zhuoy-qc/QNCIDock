@@ -2,8 +2,6 @@
 A method trained on DLPNO-CCSD(T) dimer interaction energies for quantitively evaluate pication interaction strength and guide docking aromatic ligand into  cationic protein binding pocket. 
 To use our method to perfrom docking, you need to prepare protanated protein in pbd format and ligand intial position in sdf format. 
 
-Other non-colvaent interactions developing...
-
 ## Framework overview
 ![Workflow Illustration](workflow_illustration.png)
 
