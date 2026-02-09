@@ -22,8 +22,8 @@ PicationDock requires a specific folder structure for proper execution. The data
 
 - **Folder Name:** A four-character identifier,  typically matching the PDB ID and ligand ID, e.g 6HA4_T3Y
 - The following files are required 
-  - `<folder_name>_ligand.sdf`
-  - `<folder_name>_protein_protonated.pdb `
+  - `<folder_name>_ligand.sdf`      --ligand file in sdf format, used for auto-generate a docking box (default +8 on all six sides)
+  - `<folder_name>_protein_protonated.pdb ` --protonated protein file in pbd format 
 
 
 Ensure that all required files are present before running.
