@@ -33,7 +33,7 @@ Ensure that all required files are present before running.
 We first demonstrate how to dock 6HA4_T3Y from Dockgen Datset for you to try.
 ### 1. Sample
 ```bash
-python vina_sample.py
+python sample_vina.py
 ```
  this will generate exhaust50_dock.sdf which contains vina raw ranking of 50 sampled poses.
 ### 2. Compute RMSD of each sampled pose for later evaluation only
