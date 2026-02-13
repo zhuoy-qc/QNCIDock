@@ -30,7 +30,7 @@ Ensure that all required files are present before running.
 
 
 ## Docking on a single protein
-We first demonstrate how to dock 6HA4_T3Y from Dockgen Datset for you to try.
+We first demonstrate how to dock 6HA4_T3Y from Dockgen Datset for you to try. first change into the directory.
 ### 1. Sample
 ```bash
 python sample_vina.py
