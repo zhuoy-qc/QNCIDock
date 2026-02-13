@@ -49,8 +49,12 @@ python run_energy_prediction.py
 ```bash
 python  run_model_rerank.py
 ```
- the key ouput final model ranking in `predictions_with_model_scores.csv`
-
+ output  `predictions_with_model_scores.csv`
+### 5. Visualize docking results 
+```bash
+python  print_model_final.py
+```
+This print the vina and model top-4 poses RMSD related to cyrstal ligand poses.
 
 ## Run with preprocess dataset (Reproduce paper key results, will take some time for Vina sampling run.) 
 For demonstration, we provide preprocessed data (protein protanated, ligand in sdf format) for the Dockgen Dataset with all-pication interactions complexes included. This section will demonstrate how to run our docking pipeline and evaluat performance.  First, unzip the .zip file. 
