@@ -43,7 +43,7 @@ python compute_rmsd_for_docked_pose.py
 this will compute RMSD of each sampled pose compared to reference experimental ligand pose and save results containing vina score into a csv. Reference ligand pose information only used to evluation of model performance, not used as model input.
 ### 3. Prediction dimer interaction energies.
 ```bash
-python compute_rmsd_for_docked_pose.py
+python run_energy_prediction.py
 ```
 ### 4. Run final rerank
 ```bash
