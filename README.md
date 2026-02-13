@@ -47,7 +47,7 @@ python run_energy_prediction.py
 ```
 ### 4. Run final rerank
 ```bash
-python  run_rerank.py
+python  run_model_rerank.py
 ```
  the key ouput final model ranking in `predictions_with_model_scores.csv`
 
