@@ -1,345 +1,511 @@
-#!/usr/bin/env python3
-"""
-Complete molecular docking analysis pipeline combining:
-1. Complex generation
-2. π-cation interaction analysis
-3. Energy prediction and ranking
-"""
-
-import os
-import sys
-import logging
-import glob
-import csv
-import math
-import warnings
-import pickle
-import argparse
-import tempfile
-import shutil
-from pathlib import Path
-from functools import partial
-from multiprocessing import Pool, cpu_count
-from tqdm import tqdm
-from io import StringIO
-import numpy as np
 import pandas as pd
-import joblib
-from Bio.PDB import PDBParser, PDBIO, Select
-from Bio.PDB.Polypeptide import is_aa
-from rdkit import Chem
-from rdkit import RDLogger
-from plip.structure.preparation import PDBComplex
+import numpy as np
 from sklearn.preprocessing import StandardScaler
+import pickle
+import re
+import argparse
+import sys
+from pathlib import Path
 
-# ==================== CONFIGURATION ====================
-warnings.filterwarnings("ignore")
-RDLogger.DisableLog('rdApp.warning')
-RDLogger.DisableLog('rdApp.info')
-
-# Model paths
-MODEL_DIR = Path(__file__).parent / "trained_models"
-STANDARD_MODEL_PATH = MODEL_DIR / "non-ARG_energy_prediction_model.pkl"
-ARG_MODEL_PATH = MODEL_DIR / "ARG_pi_interaction_energy_predictor.pkl"
-RERANKER_MODEL_PATH = MODEL_DIR / "vina_failure_finetuned_best_model.pkl"
-
-# ==================== CLASSES ====================
-class ProteinSelect(Select):
-    """Select only standard amino acids"""
-    def accept_residue(self, residue):
-        return is_aa(residue, standard=True)
-
-# ==================== UTILITY FUNCTIONS ====================
-def setup_logging():
-    """Configure logging system"""
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
+def get_model_path():
+    """Dynamically locate model file based on current working directory"""
+    current_dir = Path.cwd()
     
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    # Possible locations for trained_models directory
+    possible_locations = [
+        current_dir.parent / "trained_models",  # If running from Example_6HA4_T3Y subdirectory
+        current_dir / "trained_models",         # If running from main directory
+        Path(__file__).parent / "trained_models",  # Relative to script location
+    ]
     
-    # Console handler
-    ch = logging.StreamHandler()
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-    
-    # File handler
-    error_log_file = 'docking_analysis.log'
-    fh = logging.FileHandler(error_log_file)
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
-    
-    return logger, error_log_file
-
-logger, error_log_file = setup_logging()
-
-def log_error(message):
-    """Log error messages"""
-    logger.error(message)
-    with open(error_log_file, 'a') as f:
-        f.write(f"{pd.Timestamp.now()}: {message}\n")
-
-def print_logo():
-    """Print program logo"""
-    print(r"""
-    ╔══════════════════════════════════════════════════════════════╗
-    ║                    PiCationDock                              ║
-    ║                                                              ║
-    ║                    Version 1.0.0                             ║
-    ╚══════════════════════════════════════════════════════════════╝
-    """)
-
-# ==================== STEP 1: COMPLEX GENERATION ====================
-def clean_pdb(input_file, output_file):
-    """Clean PDB file to contain only protein atoms"""
-    try:
-        parser = PDBParser(QUIET=True)
-        structure = parser.get_structure('protein', input_file)
-        io = PDBIO()
-        io.set_structure(structure)
-        io.save(output_file, ProteinSelect())
-        logger.info(f"Generated clean protein: {output_file}")
-        return output_file
-    except Exception as e:
-        log_error(f"Failed to clean PDB {input_file}: {str(e)}")
-        return None
-
-def find_protein_files(directory):
-    """Find protein files in directory"""
-    protein_files = glob.glob(os.path.join(directory, "*_protein.pdb"))
-    if not protein_files:
-        protein_files = glob.glob(os.path.join(directory, "*_protein_protonated.pdb"))
-    
-    clean_files = []
-    for pf in protein_files:
-        clean_file = pf.replace('_protein.pdb', '_clean.pdb').replace('_protein_protonated.pdb', '_clean.pdb')
-        result = clean_pdb(pf, clean_file)
-        if result:
-            clean_files.append(result)
-    
-    return clean_files
-
-def find_docked_files(directory):
-    """Find docked ligand files"""
-    return glob.glob(os.path.join(directory, "*_dock.sdf"))
-
-def create_complex(protein_file, ligand_file, output_dir, pose_idx):
-    """Create protein-ligand complex PDB"""
-    try:
-        # Load protein
-        with open(protein_file, 'r') as f:
-            protein_lines = f.readlines()
-        
-        # Load ligand pose
-        supplier = Chem.SDMolSupplier(ligand_file)
-        mol = supplier[pose_idx]
-        if mol is None:
-            return None
-        
-        # Generate output path
-        prot_name = os.path.basename(protein_file).replace('_clean.pdb', '')
-        lig_name = os.path.basename(ligand_file).replace('_dock.sdf', '')
-        output_file = os.path.join(output_dir, f"{prot_name}_{lig_name}_complex_{pose_idx+1}.pdb")
-        
-        # Write complex
-        with open(output_file, 'w') as f:
-            f.writelines(protein_lines)
-            f.write(Chem.MolToPDBBlock(mol))
-            f.write("END\n")
-        
-        return output_file
-    except Exception as e:
-        log_error(f"Error creating complex {pose_idx+1}: {str(e)}")
-        return None
-
-def process_directory(directory):
-    """Process all protein-ligand pairs in a directory"""
-    protein_files = find_protein_files(directory)
-    ligand_files = find_docked_files(directory)
-    
-    if not protein_files or not ligand_files:
-        logger.warning(f"Skipping {directory}: missing protein or ligand files")
-        return []
-    
-    complex_dirs = []
-    for protein in protein_files:
-        for ligand in ligand_files:
-            # Create output directory
-            prot_name = os.path.basename(protein).replace('_clean.pdb', '')
-            lig_name = os.path.basename(ligand).replace('_dock.sdf', '')
-            output_dir = os.path.join(directory, f"{prot_name}_{lig_name}_complexes")
-            os.makedirs(output_dir, exist_ok=True)
+    # Find the first location that exists
+    for location in possible_locations:
+        if location.exists() and location.is_dir():
+            # Check for different possible model filenames
+            possible_models = [
+                "vina_failure_finetuned_best_model.pkl",
+                "reranker_model_new.pkl",
+                "non-ARG_energy_prediction_model.pkl",
+                "ARG_pi_interaction_energy_predictor.pkl"
+            ]
             
-            # Generate all poses
-            supplier = Chem.SDMolSupplier(ligand)
-            complexes = []
-            for i in range(len(supplier)):
-                complex_file = create_complex(protein, ligand, output_dir, i)
-                if complex_file:
-                    complexes.append(complex_file)
-            
-            if complexes:
-                complex_dirs.append(output_dir)
+            for model_name in possible_models:
+                model_path = location / model_name
+                if model_path.exists():
+                    logger.info(f"✅ Found model at: {model_path}")
+                    return model_path
     
-    return complex_dirs
+    # If not found, use default path but warn user
+    logger.warning("⚠️  Could not automatically locate model file")
+    logger.warning(f"Current working directory: {current_dir}")
+    logger.warning("Please ensure model files exist at one of these locations:")
+    for location in possible_locations:
+        logger.warning(f"  - {location}")
+    
+    # Return default path (will fail gracefully later with proper error messages)
+    default_location = current_dir.parent / "trained_models"
+    return default_location / "vina_failure_finetuned_best_model.pkl"
 
-# ==================== STEP 2: INTERACTION ANALYSIS ====================
-def analyze_interactions(pdb_file):
-    """Analyze π-cation interactions in a complex"""
-    try:
-        pdbcomplex = PDBComplex()
-        pdbcomplex.load_pdb(str(pdb_file))
-        pdbcomplex.analyze()
+# Configure logging
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+def create_comprehensive_features(interaction_csv="all_sampled_poses_with-pi-cation-interactions.csv",
+                                 results_csv="exhaust50_detailed_results.csv", 
+                                 output_file="comprehensive_features.csv"):
+    """Create comprehensive features from interaction and results CSVs"""
+    # Read the interaction data
+    interaction_df = pd.read_csv(interaction_csv)
+    
+    # Convert Ring_Type to numeric: '5-membered' -> 5, '6-membered' -> 6
+    def convert_ring_type(ring_type):
+        if pd.isna(ring_type):
+            return np.nan
+        if '5-membered' in str(ring_type):
+            return 5
+        elif '6-membered' in str(ring_type):
+            return 6
+        else:
+            return np.nan
+    
+    interaction_df['Ring_Type_Numeric'] = interaction_df['Ring_Type'].apply(convert_ring_type)
+    
+    # Extract pose number from PDB_File
+    def extract_pose_number(pdb_file):
+        parts = pdb_file.replace('.pdb', '').split('_')
+        if len(parts) >= 2:
+            return int(parts[-1])
+        else:
+            return np.nan
+    
+    interaction_df['vina_pose_number'] = interaction_df['PDB_File'].apply(extract_pose_number)
+    
+    # Group interactions by PDB_ID and vina_pose_number
+    grouped_interactions = interaction_df.groupby(['PDB_ID', 'vina_pose_number']).agg({
+        'Protein_Residue_Type': list,
+        'Predicted_Energy': list,
+        'Dihedral_Angle': list,
+        'Distance': list,
+        'Offset': list,
+        'Ring_Type_Numeric': list
+    }).reset_index()
+    
+    # Function to process interaction details
+    def process_interaction_details(row):
+        residue_list = row['Protein_Residue_Type']
+        energy_list = row['Predicted_Energy']
+        dihedral_list = row['Dihedral_Angle']
+        distance_list = row['Distance']
+        offset_list = row['Offset']
+        ring_type_list = row['Ring_Type_Numeric']
         
-        interactions = []
-        for bs_id, interaction_set in pdbcomplex.interaction_sets.items():
-            for pic in interaction_set.pication_laro:
-                # Extract interaction features
-                interaction = {
-                    'complex': os.path.basename(pdb_file),
-                    'protein_res': f"{pic.restype}-{pic.resnr}-{pic.reschain}",
-                    'ligand': f"{pic.restype_l}-{pic.resnr_l}-{pic.reschain_l}",
-                    'distance': round(float(pic.distance), 2),
-                    'offset': round(float(pic.offset), 2),
-                    'angle': round(float(pic.angle), 2),
-                    'is_arg': (pic.restype.strip().upper() == 'ARG')
-                }
-                interactions.append(interaction)
+        # Count residue types
+        lys_count = sum(1 for res in residue_list if res == 'LYS')
+        arg_count = sum(1 for res in residue_list if res == 'ARG')
+        his_count = sum(1 for res in residue_list if res == 'HIS')
         
-        return interactions
-    except Exception as e:
-        log_error(f"Error analyzing {pdb_file}: {str(e)}")
-        return []
+        # Calculate residue-specific averages
+        arg_dihedral_vals = [d for d, res in zip(dihedral_list, residue_list) if res == 'ARG' and pd.notna(d)]
+        arg_distance_vals = [d for d, res in zip(distance_list, residue_list) if res == 'ARG' and pd.notna(d)]
+        arg_offset_vals = [o for o, res in zip(offset_list, residue_list) if res == 'ARG' and pd.notna(o)]
+        arg_ring_type_vals = [r for r, res in zip(ring_type_list, residue_list) if res == 'ARG' and pd.notna(r)]
+        
+        lys_distance_vals = [d for d, res in zip(distance_list, residue_list) if res == 'LYS' and pd.notna(d)]
+        lys_offset_vals = [o for o, res in zip(offset_list, residue_list) if res == 'LYS' and pd.notna(o)]
+        lys_ring_type_vals = [r for r, res in zip(ring_type_list, residue_list) if res == 'LYS' and pd.notna(r)]
+        
+        his_distance_vals = [d for d, res in zip(distance_list, residue_list) if res == 'HIS' and pd.notna(d)]
+        his_offset_vals = [o for o, res in zip(offset_list, residue_list) if res == 'HIS' and pd.notna(o)]
+        his_ring_type_vals = [r for r, res in zip(ring_type_list, residue_list) if res == 'HIS' and pd.notna(r)]
+        
+        # Calculate averages
+        avg_dihedral_arg = np.mean(arg_dihedral_vals) if arg_dihedral_vals else np.nan
+        avg_distance_arg = np.mean(arg_distance_vals) if arg_distance_vals else np.nan
+        avg_offset_arg = np.mean(arg_offset_vals) if arg_offset_vals else np.nan
+        avg_ring_type_arg = np.mean(arg_ring_type_vals) if arg_ring_type_vals else np.nan
+        
+        avg_distance_lys = np.mean(lys_distance_vals) if lys_distance_vals else np.nan
+        avg_offset_lys = np.mean(lys_offset_vals) if lys_offset_vals else np.nan
+        avg_ring_type_lys = np.mean(lys_ring_type_vals) if lys_ring_type_vals else np.nan
+        
+        avg_distance_his = np.mean(his_distance_vals) if his_distance_vals else np.nan
+        avg_offset_his = np.mean(his_offset_vals) if his_offset_vals else np.nan
+        avg_ring_type_his = np.mean(his_ring_type_vals) if his_ring_type_vals else np.nan
+        
+        # Separate energies by amino acid type
+        lys_energies = [e for e, res in zip(energy_list, residue_list) if res == 'LYS']
+        arg_energies = [e for e, res in zip(energy_list, residue_list) if res == 'ARG']
+        his_energies = [e for e, res in zip(energy_list, residue_list) if res == 'HIS']
+        
+        return pd.Series([lys_count, arg_count, his_count, 
+                         avg_dihedral_arg, avg_distance_arg, avg_offset_arg, avg_ring_type_arg,
+                         avg_distance_lys, avg_offset_lys, avg_ring_type_lys,
+                         avg_distance_his, avg_offset_his, avg_ring_type_his,
+                         lys_energies, arg_energies, his_energies])
+    
+    # Apply processing function
+    grouped_interactions[['LYS_Count', 'ARG_Count', 'HIS_Count', 
+                         'Dihedral_Angle_ARG', 'Distance_ARG', 
+                         'Offset_ARG', 'Ring_Type_Numeric_ARG',
+                         'Distance_LYS', 'Offset_LYS', 'Ring_Type_Numeric_LYS',
+                         'Distance_HIS', 'Offset_HIS', 'Ring_Type_Numeric_HIS',
+                         'LYS_Energies', 'ARG_Energies', 'HIS_Energies']] = \
+        grouped_interactions.apply(process_interaction_details, axis=1)
+    
+    # Add interaction count
+    grouped_interactions['Num_Interactions'] = grouped_interactions['Protein_Residue_Type'].apply(len)
+    
+    # Function to create energy features
+    def create_energy_features(energies, max_interactions=5):
+        energy_features = []
+        for i in range(max_interactions):
+            if i < len(energies):
+                energy_features.append(energies[i])
+            else:
+                energy_features.append(np.nan)
+        return energy_features
+    
+    # Create LYS-specific energy features
+    lys_energy_features = grouped_interactions['LYS_Energies'].apply(
+        lambda x: create_energy_features(x if isinstance(x, list) else [])
+    ).apply(pd.Series)
+    lys_energy_features.columns = [f'LYS_Energy_{i+1}' for i in range(5)]
+    
+    # Create ARG-specific energy features
+    arg_energy_features = grouped_interactions['ARG_Energies'].apply(
+        lambda x: create_energy_features(x if isinstance(x, list) else [])
+    ).apply(pd.Series)
+    arg_energy_features.columns = [f'ARG_Energy_{i+1}' for i in range(5)]
+    
+    # Create HIS-specific energy features
+    his_energy_features = grouped_interactions['HIS_Energies'].apply(
+        lambda x: create_energy_features(x if isinstance(x, list) else [])
+    ).apply(pd.Series)
+    his_energy_features.columns = [f'HIS_Energy_{i+1}' for i in range(5)]
+    
+    # Combine all features
+    interaction_summary = pd.concat([
+        grouped_interactions[['PDB_ID', 'vina_pose_number', 'Num_Interactions',
+                             'LYS_Count', 'ARG_Count', 'HIS_Count',
+                             'Dihedral_Angle_ARG', 'Distance_ARG', 
+                             'Offset_ARG', 'Ring_Type_Numeric_ARG',
+                             'Distance_LYS', 'Offset_LYS', 'Ring_Type_Numeric_LYS',
+                             'Distance_HIS', 'Offset_HIS', 'Ring_Type_Numeric_HIS']],
+        lys_energy_features,
+        arg_energy_features,
+        his_energy_features
+    ], axis=1)
+    
+    # Add amino acid interaction counts
+    interaction_summary['LYS_Interaction_Count'] = interaction_summary['LYS_Energy_1'].notna().astype(int) + \
+                                                   interaction_summary['LYS_Energy_2'].notna().astype(int) + \
+                                                   interaction_summary['LYS_Energy_3'].notna().astype(int) + \
+                                                   interaction_summary['LYS_Energy_4'].notna().astype(int) + \
+                                                   interaction_summary['LYS_Energy_5'].notna().astype(int)
+    interaction_summary['ARG_Interaction_Count'] = interaction_summary['ARG_Energy_1'].notna().astype(int) + \
+                                                   interaction_summary['ARG_Energy_2'].notna().astype(int) + \
+                                                   interaction_summary['ARG_Energy_3'].notna().astype(int) + \
+                                                   interaction_summary['ARG_Energy_4'].notna().astype(int) + \
+                                                   interaction_summary['ARG_Energy_5'].notna().astype(int)
+    interaction_summary['HIS_Interaction_Count'] = interaction_summary['HIS_Energy_1'].notna().astype(int) + \
+                                                   interaction_summary['HIS_Energy_2'].notna().astype(int) + \
+                                                   interaction_summary['HIS_Energy_3'].notna().astype(int) + \
+                                                   interaction_summary['HIS_Energy_4'].notna().astype(int) + \
+                                                   interaction_summary['HIS_Energy_5'].notna().astype(int)
+    
+    # Create binary feature for more than one interaction
+    interaction_summary['More_Than_One_Interaction'] = (interaction_summary['Num_Interactions'] > 1).astype(int)
+    
+    # Read the results data
+    results_df = pd.read_csv(results_csv)
+    
+    # Check if RMSD column exists and has valid values
+    if 'RMSD' in results_df.columns:
+        # Check if RMSD column has any non-NaN values
+        rmsd_has_values = results_df['RMSD'].notna().any()
+        if rmsd_has_values:
+            # Create Is_Good_Pose based on RMSD values
+            results_df['Is_Good_Pose'] = (results_df['RMSD'] <= 2.0).astype(int)
+        else:
+            # RMSD column exists but is all NaN - create with NaN
+            results_df['Is_Good_Pose'] = np.nan
+    else:
+        # RMSD column doesn't exist - create both columns with NaN
+        results_df['RMSD'] = np.nan
+        results_df['Is_Good_Pose'] = np.nan
+    
+    # In the results CSV, 'Vina_Rank' should match 'vina_pose_number' from interaction data
+    merged_df = results_df.merge(interaction_summary, 
+                                 left_on=['PDB_ID', 'Vina_Rank'], 
+                                 right_on=['PDB_ID', 'vina_pose_number'], 
+                                 how='left')
+    
+    # Fill NaN values for poses without interactions
+    fill_cols = ['Num_Interactions', 'More_Than_One_Interaction',
+                 'LYS_Count', 'ARG_Count', 'HIS_Count',
+                 'Dihedral_Angle_ARG', 'Distance_ARG', 'Offset_ARG', 'Ring_Type_Numeric_ARG',
+                 'Distance_LYS', 'Offset_LYS', 'Ring_Type_Numeric_LYS',
+                 'Distance_HIS', 'Offset_HIS', 'Ring_Type_Numeric_HIS',
+                 'LYS_Interaction_Count', 'ARG_Interaction_Count', 'HIS_Interaction_Count']
+    
+    for col in fill_cols:
+        if col in merged_df.columns:
+            merged_df[col] = merged_df[col].fillna(0)
+    
+    # Fill energy columns with 0 (no interaction)
+    for aa_type in ['LYS', 'ARG', 'HIS']:
+        for i in range(1, 6):
+            col_name = f'{aa_type}_Energy_{i}'
+            if col_name in merged_df.columns:
+                merged_df[col_name] = merged_df[col_name].fillna(0)
+    
+    # Define features that can be used as model inputs
+    feature_columns = [
+        'Vina_Score', 'Vina_Rank',
+        'Num_Interactions', 'More_Than_One_Interaction',
+        'LYS_Count', 'ARG_Count', 'HIS_Count',
+        'Dihedral_Angle_ARG', 'Distance_ARG', 'Offset_ARG', 'Ring_Type_Numeric_ARG',
+        'Distance_LYS', 'Offset_LYS', 'Ring_Type_Numeric_LYS',
+        'Distance_HIS', 'Offset_HIS', 'Ring_Type_Numeric_HIS',
+        'LYS_Energy_1', 'LYS_Energy_2', 'LYS_Energy_3', 'LYS_Energy_4', 'LYS_Energy_5',
+        'ARG_Energy_1', 'ARG_Energy_2', 'ARG_Energy_3', 'ARG_Energy_4', 'ARG_Energy_5',
+        'HIS_Energy_1', 'HIS_Energy_2', 'HIS_Energy_3', 'HIS_Energy_4', 'HIS_Energy_5',
+        'LYS_Interaction_Count', 'ARG_Interaction_Count', 'HIS_Interaction_Count',
+    ]
+    
+    # Add identifier columns separately
+    model_features = merged_df[['PDB_ID', 'Vina_Rank', 'RMSD', 'Is_Good_Pose']].copy()
+    model_features[feature_columns] = merged_df[feature_columns]
+    
+    # Reorder columns: identifiers first, then features
+    ordered_columns = ['PDB_ID', 'Vina_Rank', 'RMSD', 'Is_Good_Pose'] + feature_columns
+    result_df = model_features[ordered_columns].copy()
+    
+    # Save to CSV
+    result_df.to_csv(output_file, index=False)
+    print(f"Comprehensive features saved to {output_file}")
+    
+    return result_df
 
-def analyze_all_complexes(complex_dirs):
-    """Analyze all complexes in parallel"""
-    all_pdbs = []
-    for d in complex_dirs:
-        all_pdbs.extend(glob.glob(os.path.join(d, "*_complex_*.pdb")))
+def load_model_and_predict(input_csv, model_path=None):
+    """Load the model and make predictions"""
+    if model_path is None:
+        model_path = get_model_path()
     
-    if not all_pdbs:
-        logger.error("No complex PDB files found!")
-        return None
+    # Check if model file exists
+    if not model_path.exists():
+        logger.error(f"❌ Model file not found: {model_path}")
+        logger.error("Please ensure the model file exists in the trained_models directory")
+        logger.error(f"Current working directory: {Path.cwd()}")
+        logger.error(f"Parent directory: {Path.cwd().parent}")
+        sys.exit(1)
     
-    # Parallel processing
-    with Pool(processes=min(cpu_count(), 8)) as pool:
-        results = []
-        with tqdm(total=len(all_pdbs), desc="Analyzing complexes") as pbar:
-            for res in pool.imap_unordered(analyze_interactions, all_pdbs):
-                if res:
-                    results.extend(res)
-                pbar.update(1)
+    logger.info(f"✅ Using model: {model_path}")
     
-    if not results:
-        logger.error("No interactions found!")
-        return None
-    
-    # Save to temp CSV
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp:
-        writer = csv.DictWriter(tmp, fieldnames=results[0].keys())
-        writer.writeheader()
-        writer.writerows(results)
-        return tmp.name
-
-# ==================== STEP 3: MODEL PREDICTION ====================
-def load_model(model_path):
-    """Load a trained model"""
+    # Load the trained model
     try:
         with open(model_path, 'rb') as f:
-            model = pickle.load(f)
-        return model
+            model_info = pickle.load(f)
     except Exception as e:
-        log_error(f"Failed to load model {model_path}: {str(e)}")
-        return None
+        logger.error(f"❌ Failed to load model from {model_path}: {e}")
+        logger.error("The model file may be corrupted or in an incompatible format")
+        sys.exit(1)
+    
+    # Check if model_info has the expected structure
+    required_keys = ['classifier', 'scaler', 'selector', 'feature_columns']
+    missing_keys = [key for key in required_keys if key not in model_info]
+    if missing_keys:
+        logger.error(f"❌ Model file is missing required components: {missing_keys}")
+        logger.error("The model file may be from an older version or corrupted")
+        sys.exit(1)
+    
+    model = model_info['classifier']
+    scaler = model_info['scaler']
+    selector = model_info['selector']
+    feature_columns = model_info['feature_columns']
+    
+    logger.info(f"✅ Model loaded successfully with {len(feature_columns)} features")
+    
+    # Load the new data
+    df = pd.read_csv(input_csv)
+    
+    # Prepare features (excluding PDB_ID, Vina_Rank, RMSD, Is_Good_Pose from features)
+    feature_cols = [col for col in df.columns if col not in ['PDB_ID', 'Vina_Rank', 'RMSD', 'Is_Good_Pose']]
+    
+    # Check if all required feature columns exist
+    missing_features = [col for col in feature_columns if col not in df.columns]
+    if missing_features:
+        logger.warning(f"Missing features in input data: {missing_features}")
+        logger.warning("These features will be filled with NaN and then imputed")
+        for col in missing_features:
+            df[col] = np.nan
+    
+    # Prepare features
+    X = df[feature_columns]
+    
+    # Handle missing values
+    for col in feature_columns:
+        if X[col].dtype in ['float64', 'int64']:
+            median_val = X[col].median()
+            if pd.isna(median_val):
+                median_val = 0
+            X.loc[:, col] = X[col].fillna(median_val)
+            logger.debug(f"Filled {col} with median: {median_val}")
+    
+    # Scale and select features
+    try:
+        X_scaled = scaler.transform(X)
+        X_selected = selector.transform(X_scaled)
+    except Exception as e:
+        logger.error(f"❌ Error during feature scaling/selection: {e}")
+        logger.error("Input features may not match the training data format")
+        sys.exit(1)
+    
+    # Make predictions
+    try:
+        y_pred_proba = model.predict_proba(X_selected)[:, 1]
+        y_pred = model.predict(X_selected)
+    except Exception as e:
+        logger.error(f"❌ Error during prediction: {e}")
+        logger.error("Model may be incompatible with the input data")
+        sys.exit(1)
+    
+    # Add predictions to the dataframe
+    df['Model_Probability'] = y_pred_proba
+    df['Model_Prediction'] = y_pred
+    
+    # Print information about RMSD data
+    if 'RMSD' in df.columns:
+        rmsd_count = df['RMSD'].notna().sum()
+        total_count = len(df)
+        logger.info(f"RMSD: {rmsd_count}/{total_count} values available")
+        if rmsd_count > 0:
+            logger.info(f"RMSD range: {df['RMSD'].min():.3f} to {df['RMSD'].max():.3f}")
+    
+    return df
 
-def predict_energies(interactions_csv):
-    """Predict interaction energies"""
-    df = pd.read_csv(interactions_csv)
-    if df.empty:
-        logger.error("No interactions to predict!")
+def get_top_predictions(df, top_n=4):
+    """Get top N predictions per PDB_ID by model probability"""
+    ranked_data = []
+    
+    for pdb_id in df['PDB_ID'].unique():
+        pdb_group = df[df['PDB_ID'] == pdb_id].copy()
+        
+        # Sort by model probability descending
+        pdb_group_sorted = pdb_group.sort_values(by='Model_Probability', ascending=False).reset_index(drop=True)
+        
+        # Add model rank
+        pdb_group_sorted['Model_Rank'] = pdb_group_sorted.index + 1
+        
+        # Filter for top N predictions per PDB_ID
+        top_n_data = pdb_group_sorted.head(top_n)
+        
+        # Select required columns
+        for idx, row in top_n_data.iterrows():
+            ranked_data.append({
+                'PDB_ID': row['PDB_ID'],
+                'Vina_Rank': row['Vina_Rank'],
+                'Model_Rank': row['Model_Rank'],
+                'Model_Probability': row['Model_Probability'],
+                'RMSD': row.get('RMSD', np.nan),  # Include RMSD if available
+                'Is_Good_Pose': row.get('Is_Good_Pose', np.nan)  # Include Is_Good_Pose if available
+            })
+    
+    return pd.DataFrame(ranked_data)
+
+def merge_with_interactions(predictions_df, interactions_csv='interactions_autobox4_ex50.csv', 
+                          output_csv='model_interactions.csv', top_n=4):
+    """Merge predictions with interaction data"""
+    interactions_df = pd.read_csv(interactions_csv)
+    
+    # Function to extract Vina rank from PDB filename
+    def extract_vina_rank(pdb_file):
+        match = re.search(r'complex_(\d+)\.pdb', pdb_file)
+        if match:
+            return int(match.group(1))
         return None
     
-    # Load models
-    arg_model = load_model(ARG_MODEL_PATH)
-    std_model = load_model(STANDARD_MODEL_PATH)
-    reranker_model = load_model(RERANKER_MODEL_PATH)
+    interactions_df['Extracted_Vina_Rank'] = interactions_df['PDB_File'].apply(extract_vina_rank)
     
-    if not all([arg_model, std_model, reranker_model]):
-        logger.error("Missing required models!")
-        return None
+    # Merge the dataframes
+    merged_df = pd.merge(
+        predictions_df, 
+        interactions_df, 
+        left_on=['PDB_ID', 'Vina_Rank'], 
+        right_on=['PDB_ID', 'Extracted_Vina_Rank'],
+        how='inner'
+    )
     
-    # Predict ARG interactions
-    arg_mask = df['is_arg'] == True
-    if arg_mask.any():
-        df_arg = df[arg_mask].copy()
-        # Feature engineering for ARG
-        df_arg['inv_distance'] = 1.0 / df_arg['distance']
-        df_arg['distance_sq'] = df_arg['distance'] ** 2
-        # Predict (example features - adjust based on actual model)
-        X_arg = df_arg[['distance', 'offset', 'angle', 'inv_distance', 'distance_sq']]
-        df_arg['predicted_energy'] = arg_model.predict(X_arg)
+    # Select columns to keep
+    # Preserve RMSD and Is_Good_Pose columns from predictions if they exist
+    base_columns = ['PDB_ID', 'Vina_Rank', 'Model_Rank', 'Model_Probability', 'RMSD', 'Is_Good_Pose']
     
-    # Predict non-ARG interactions
-    other_mask = df['is_arg'] == False
-    if other_mask.any():
-        df_other = df[other_mask].copy()
-        # Predict (example features - adjust based on actual model)
-        X_other = df_other[['distance', 'offset', 'angle']]
-        df_other['predicted_energy'] = std_model.predict(X_other)
+    final_columns = base_columns + \
+                    [col for col in interactions_df.columns if col not in ['Extracted_Vina_Rank']]
     
-    # Combine predictions
-    df_pred = pd.concat([df_arg, df_other], ignore_index=True)
+    result_df = merged_df[final_columns].copy()
+    result_df.to_csv(output_csv, index=False)
     
-    # Rerank predictions
-    df_pred['rank'] = df_pred.groupby('complex')['predicted_energy'].rank()
+    logger.info(f"Merged {len(result_df)} rows from both CSVs")
+    logger.info(f"Output saved to {output_csv}")
     
-    # Save final results
-    output_file = "docking_results.csv"
-    df_pred.to_csv(output_file, index=False)
-    return output_file
+    return result_df
 
-# ==================== MAIN EXECUTION ====================
-def main(base_dir):
-    """Run complete analysis pipeline"""
-    print_logo()
+def main():
+    parser = argparse.ArgumentParser(description='Generate features, predict, and output top results')
+    parser.add_argument('--model_path', 
+                       help='Path to trained model file (auto-detected if not provided)')
+    parser.add_argument('--interaction_csv', default='all_sampled_poses_with-pi-cation-interactions.csv', 
+                       help='Path to interactions CSV file')
+    parser.add_argument('--results_csv', default='exhaust50_detailed_results.csv', 
+                       help='Path to results CSV file (with or without RMSD)')
+    parser.add_argument('--top_n', type=int, default=4, 
+                       help='Number of top results to output per PDB_ID (default: 4)')
+    parser.add_argument('--features_output', default='comprehensive_features.csv', 
+                       help='Output path for features CSV')
+    parser.add_argument('--predictions_output', default='predictions_with_model_scores.csv', 
+                       help='Output path for predictions CSV')
+    parser.add_argument('--final_output', default='model_interactions.csv', 
+                       help='Output path for final merged CSV')
     
-    # Step 1: Generate complexes
-    logger.info("\n" + "="*50)
-    logger.info("STEP 1: GENERATING COMPLEXES")
-    logger.info("="*50)
-    complex_dirs = []
-    for root, dirs, files in os.walk(base_dir):
-        for d in dirs:
-            full_path = os.path.join(root, d)
-            dir_complexes = process_directory(full_path)
-            complex_dirs.extend(dir_complexes)
-    
-    if not complex_dirs:
-        logger.error("No complexes generated!")
-        return 1
-    
-    # Step 2: Analyze interactions
-    logger.info("\n" + "="*50)
-    logger.info("STEP 2: ANALYZING INTERACTIONS")
-    logger.info("="*50)
-    interactions_csv = analyze_all_complexes(complex_dirs)
-    if not interactions_csv:
-        return 1
-    
-    # Step 3: Predict and rank
-    logger.info("\n" + "="*50)
-    logger.info("STEP 3: PREDICTING ENERGIES")
-    logger.info("="*50)
-    results_file = predict_energies(interactions_csv)
-    if not results_file:
-        return 1
-    
-    logger.info(f"\nAnalysis complete! Results saved to: {results_file}")
-    return 0
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Molecular Docking Analysis Pipeline')
-    parser.add_argument('base_dir', help='Directory containing docking results')
     args = parser.parse_args()
     
-    sys.exit(main(args.base_dir))
+    # Set default model path if not provided
+    if args.model_path is None:
+        args.model_path = get_model_path()
+    
+    logger.info("Step 1: Generating comprehensive features...")
+    features_df = create_comprehensive_features(
+        interaction_csv=args.interaction_csv,
+        results_csv=args.results_csv,
+        output_file=args.features_output
+    )
+    
+    logger.info("Step 2: Loading model and making predictions...")
+    predictions_df = load_model_and_predict(
+        input_csv=args.features_output,
+        model_path=args.model_path
+    )
+    
+    # Save predictions
+    predictions_df.to_csv(args.predictions_output, index=False)
+    logger.info(f"Predictions saved to {args.predictions_output}")
+    
+    logger.info(f"Step 3: Getting top {args.top_n} predictions per PDB_ID...")
+    top_predictions_df = get_top_predictions(predictions_df, top_n=args.top_n)
+    
+    logger.info("Step 4: Merging with interaction data...")
+    final_df = merge_with_interactions(
+        top_predictions_df, 
+        interactions_csv=args.interaction_csv,
+        output_csv=args.final_output,
+        top_n=args.top_n
+    )
+    
+    logger.info("Process completed successfully!")
+    logger.info(f"Generated files: {args.features_output}, {args.predictions_output}, {args.final_output}")
+
+if __name__ == "__main__":
+    main()
 
