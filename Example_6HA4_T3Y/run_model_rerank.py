@@ -7,44 +7,96 @@ import argparse
 import sys
 from pathlib import Path
 
-def get_model_path():
-    """Dynamically locate model file based on current working directory"""
-    current_dir = Path.cwd()
+def find_project_root(start_path=None):
+    """
+    Find the project root directory containing 'pication-main' by searching upwards.
+    Returns the path to pication-main directory.
+    """
+    if start_path is None:
+        start_path = Path.cwd()
     
-    # Possible locations for trained_models directory
-    possible_locations = [
-        current_dir.parent / "trained_models",  # If running from Example_6HA4_T3Y subdirectory
-        current_dir / "trained_models",         # If running from main directory
-        Path(__file__).parent / "trained_models",  # Relative to script location
+    current_path = Path(start_path).resolve()
+    
+    # Search upwards through parent directories
+    for parent in [current_path] + list(current_path.parents):
+        # Check if 'pication-main' directory exists in this parent
+        pication_main = parent / "pication-main"
+        if pication_main.exists() and pication_main.is_dir():
+            return pication_main
+    
+    # If not found, try alternative naming patterns
+    for parent in [current_path] + list(current_path.parents):
+        # Look for directories containing 'pication' and 'main'
+        for item in parent.iterdir():
+            if item.is_dir() and ('pication' in item.name.lower() and 'main' in item.name.lower()):
+                return item
+    
+    return None
+
+def get_model_path():
+    """Dynamically locate model file in pication-main/trained_models regardless of current directory depth"""
+    
+    # Find the project root (pication-main directory)
+    project_root = find_project_root()
+    
+    if project_root is None:
+        # Fallback: try to construct path based on common patterns
+        current_dir = Path.cwd()
+        possible_roots = [
+            current_dir.parent.parent.parent,  # Go up 3 levels
+            current_dir.parent.parent,          # Go up 2 levels  
+            current_dir.parent,                 # Go up 1 level
+            current_dir,                        # Current level
+        ]
+        
+        for root in possible_roots:
+            potential_pication = root / "pication-main"
+            if potential_pication.exists():
+                project_root = potential_pication
+                break
+    
+    if project_root is None:
+        logger.error("❌ Could not locate pication-main directory!")
+        logger.error(f"Current working directory: {Path.cwd()}")
+        logger.error("Please ensure you're running from within the pication project structure")
+        logger.error("Expected structure: .../pication-main/trained_models/")
+        return None
+    
+    # Construct path to trained_models directory
+    trained_models_dir = project_root / "trained_models"
+    
+    if not trained_models_dir.exists() or not trained_models_dir.is_dir():
+        logger.error(f"❌ trained_models directory not found at: {trained_models_dir}")
+        logger.error(f"Project root found at: {project_root}")
+        return None
+    
+    logger.info(f"✅ Found project root: {project_root}")
+    logger.info(f"✅ Found trained_models directory: {trained_models_dir}")
+    
+    # Check for different possible model filenames
+    possible_models = [
+        "vina_failure_finetuned_best_model.pkl",
+        "reranker_model_new.pkl", 
+        "non-ARG_energy_prediction_model.pkl",
+        "ARG_pi_interaction_energy_predictor.pkl"
     ]
     
-    # Find the first location that exists
-    for location in possible_locations:
-        if location.exists() and location.is_dir():
-            # Check for different possible model filenames
-            possible_models = [
-                "vina_failure_finetuned_best_model.pkl",
-                "reranker_model_new.pkl",
-                "non-ARG_energy_prediction_model.pkl",
-                "ARG_pi_interaction_energy_predictor.pkl"
-            ]
-            
-            for model_name in possible_models:
-                model_path = location / model_name
-                if model_path.exists():
-                    logger.info(f"✅ Found model at: {model_path}")
-                    return model_path
+    for model_name in possible_models:
+        model_path = trained_models_dir / model_name
+        if model_path.exists():
+            logger.info(f"✅ Found model: {model_path}")
+            return model_path
     
-    # If not found, use default path but warn user
-    logger.warning("⚠️  Could not automatically locate model file")
-    logger.warning(f"Current working directory: {current_dir}")
-    logger.warning("Please ensure model files exist at one of these locations:")
-    for location in possible_locations:
-        logger.warning(f"  - {location}")
-    
-    # Return default path (will fail gracefully later with proper error messages)
-    default_location = current_dir.parent / "trained_models"
-    return default_location / "vina_failure_finetuned_best_model.pkl"
+    # If no specific model found, list available files
+    logger.warning(f"⚠️  No recognized model files found in {trained_models_dir}")
+    available_files = list(trained_models_dir.glob("*.pkl"))
+    if available_files:
+        logger.info(f"Available .pkl files: {[f.name for f in available_files]}")
+        # Return the first .pkl file as fallback
+        return available_files[0]
+    else:
+        logger.error(f"❌ No .pkl files found in {trained_models_dir}")
+        return None
 
 # Configure logging
 import logging
@@ -293,12 +345,13 @@ def load_model_and_predict(input_csv, model_path=None):
     if model_path is None:
         model_path = get_model_path()
     
+    if model_path is None:
+        logger.error("❌ No model path could be determined!")
+        sys.exit(1)
+    
     # Check if model file exists
     if not model_path.exists():
         logger.error(f"❌ Model file not found: {model_path}")
-        logger.error("Please ensure the model file exists in the trained_models directory")
-        logger.error(f"Current working directory: {Path.cwd()}")
-        logger.error(f"Parent directory: {Path.cwd().parent}")
         sys.exit(1)
     
     logger.info(f"✅ Using model: {model_path}")
@@ -309,7 +362,6 @@ def load_model_and_predict(input_csv, model_path=None):
             model_info = pickle.load(f)
     except Exception as e:
         logger.error(f"❌ Failed to load model from {model_path}: {e}")
-        logger.error("The model file may be corrupted or in an incompatible format")
         sys.exit(1)
     
     # Check if model_info has the expected structure
@@ -317,7 +369,6 @@ def load_model_and_predict(input_csv, model_path=None):
     missing_keys = [key for key in required_keys if key not in model_info]
     if missing_keys:
         logger.error(f"❌ Model file is missing required components: {missing_keys}")
-        logger.error("The model file may be from an older version or corrupted")
         sys.exit(1)
     
     model = model_info['classifier']
@@ -337,7 +388,6 @@ def load_model_and_predict(input_csv, model_path=None):
     missing_features = [col for col in feature_columns if col not in df.columns]
     if missing_features:
         logger.warning(f"Missing features in input data: {missing_features}")
-        logger.warning("These features will be filled with NaN and then imputed")
         for col in missing_features:
             df[col] = np.nan
     
@@ -351,7 +401,6 @@ def load_model_and_predict(input_csv, model_path=None):
             if pd.isna(median_val):
                 median_val = 0
             X.loc[:, col] = X[col].fillna(median_val)
-            logger.debug(f"Filled {col} with median: {median_val}")
     
     # Scale and select features
     try:
@@ -359,7 +408,6 @@ def load_model_and_predict(input_csv, model_path=None):
         X_selected = selector.transform(X_scaled)
     except Exception as e:
         logger.error(f"❌ Error during feature scaling/selection: {e}")
-        logger.error("Input features may not match the training data format")
         sys.exit(1)
     
     # Make predictions
@@ -368,7 +416,6 @@ def load_model_and_predict(input_csv, model_path=None):
         y_pred = model.predict(X_selected)
     except Exception as e:
         logger.error(f"❌ Error during prediction: {e}")
-        logger.error("Model may be incompatible with the input data")
         sys.exit(1)
     
     # Add predictions to the dataframe
@@ -475,6 +522,10 @@ def main():
     if args.model_path is None:
         args.model_path = get_model_path()
     
+    if args.model_path is None:
+        logger.error("❌ Cannot proceed without model file!")
+        sys.exit(1)
+    
     logger.info("Step 1: Generating comprehensive features...")
     features_df = create_comprehensive_features(
         interaction_csv=args.interaction_csv,
@@ -508,4 +559,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
