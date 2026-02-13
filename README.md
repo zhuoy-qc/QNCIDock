@@ -49,7 +49,6 @@ python run_energy_prediction.py
 ```bash
 python  run_model_rerank.py
 ```
- output  `predictions_with_model_scores.csv`
 ### 5. Visualize docking results 
 ```bash
 python  print_model_final.py
