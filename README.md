@@ -74,14 +74,15 @@ As in the sinlge protein docking example, similar to the single protein complex 
 ```bash
 tmux
 python sample_vina.py
+python compute_rmsd_for_docked_pose.py
 python run_energy_prediction.py
+python  run_model_rerank.py
 ```
 Then run the remaining 3 python scripts as in the single-protein docking demonstration. 
 
 For evluation pefromance: 
 ```bash
 python  evaluation_recovery_rate.py
-python compute_rmsd_for_docked_pose.py
 python  evaluation_rmsd.py
 ```
 
