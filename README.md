@@ -101,6 +101,16 @@ python 1_sampling.py
 python 2_model.py
 
 
+## Dock ligand aromatic rings only 
+In this section , we demonstrate how to dock aromatic rings of ligands for Dockgen dataset, and evaluation of ring docking False Postive Reduction rate and Pi-cation interaction recovery rate of docked ring poses. (reproduce paper results)
+
+```bash
+python prepare_docking_tasks.py
+python sample_aromatic_ring_poses.py
+python model_predict_energies.py
+```
+
+For evaluation :
 
 
 
