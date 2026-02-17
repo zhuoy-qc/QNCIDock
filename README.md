@@ -58,7 +58,7 @@ This print the vina and model top-4 poses RMSD related to cyrstal ligand poses.
 ## Run with a dataset (Reproduce paper key results, will take some time for Vina sampling run.) 
 This section will demonstrate how to run our docking pipeline and evaluate performance for a dataset. The zip files contains the dataset and all scripts needed to reproduce key paper results.
 ```bash
-unzip posebusters_all_cationic_binding_pockets_complexes.zip
+unzip Posebusters_reproduce_paper_with_codes.zip
 cd PB_cationic_binding_pocket/
 ```
 
