@@ -29,7 +29,7 @@ should be placed under ***/pication/.../...
 Ensure that all required files are present before running.
 
 
-## Docking on a single protein
+## Docking on a single protein 
 We first demonstrate how to dock 6HA4_T3Y from Dockgen Datset for you to try. first change into the directory '*replace with your path*'/pication/Example_6HA4_T3Y
 ### 1. Sample
 ```bash
@@ -58,10 +58,22 @@ This print the vina and model top-4 poses RMSD related to cyrstal ligand poses.
 ## Run with preprocess dataset (Reproduce paper key results, will take some time for Vina sampling run.) 
 This section will demonstrate how to run our docking pipeline and evaluate performance for a dataset. 
 ```bash
-unzip posebusters_all_cationic_binding_pockets_complexes.zip 
+unzip posebusters_all_cationic_binding_pockets_complexes.zip
+cd PB_cationic_binding_pocket/
+```
+```bash
+python protonate_all_proteins.py
 ```
 
-As in the sinlge protein docking example, run the 4 python script in order. Then run the evaluate_RMSD.py and evlaute_pi_cation_interaction_recovery rate.py
+'''reference_experimental_pication_interactions_report_with_pka_filtered.csv''' This contains the experimental pi-cation interactions and is used just for evaluating the pi-cation interaction recocery rate of the dataset, can be produced by PLIP see below sections.
+
+This protonate all protein files. (skip this step if your proteins already protonated)
+
+```bash
+python protonate_all_proteins.py
+```
+
+As in the sinlge protein docking example, similar to the single protein complex docking, run the 4 python script in order. Then run the evaluate_RMSD.py and evlaute_pi_cation_interaction_recovery rate.py
 
 
 
