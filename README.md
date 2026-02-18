@@ -73,8 +73,8 @@ As in the sinlge protein docking example, similar to the single protein complex 
 
 ```bash
 nohup python sample_vina.py &
-python compute_rmsd_for_docked_pose.py
-python run_energy_prediction.py
+python compute_rmsd_for_docked_pose.py 
+python run_energy_prediction.py #This steps will generate many plipfixed_*.pdb and *_protonated.pdb files, you can delete them after codes finish.
 python  run_model_rerank.py
 ```
 Then run the remaining 3 python scripts as in the single-protein docking demonstration. 
@@ -110,8 +110,8 @@ Before running prepare_docking_tasks.py  , change the ring sdf dir to matches yo
 
 ```bash
 python prepare_docking_tasks.py    
-python sample_aromatic_ring_poses.py
-python model_predict_energies.py
+python sample_aromatic_ring_poses.py 
+python model_predict_energies.py#This steps will generate many plipfixed_*.pdb and *_protonated.pdb files, you can delete them after codes finish.
 ```
 
 For evaluation :
