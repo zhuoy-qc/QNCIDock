@@ -63,7 +63,7 @@ cd PB_cationic_binding_pocket/
 ```
 
 
-'''reference_experimental_pication_interactions_report_with_pka_filtered.csv''' This contains the experimental pi-cation interactions and is used just for evaluating the pi-cation interaction recocery rate of the dataset, can be produced by PLIP see below sections.
+'''reference_experimental_pication_interactions_report_with_pka_filtered.csv''' This contains the experimental pi-cation interactions and is used just for evaluating the pi-cation interaction recocery rate of the dataset except 4 that have problems using PLIP to creat complexes, can be produced by PLIP see below sections.
 ```bash
 python protonate_all_proteins.py
 ```
