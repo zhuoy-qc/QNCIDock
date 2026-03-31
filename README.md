@@ -10,10 +10,10 @@ To use our docking method, you need to prepare the protonated protein in PDB for
 ## Environments
 First, clone our repo. Then, we recommend using Conda to set up the environment.
 ```bash
-conda env create -f picationdock.yml
+conda env create -f QNCIDock.yml
 ```
 ```bash
-conda activate picationdock
+conda activate QNCIDock
 ```
 
 ## Data Organization
