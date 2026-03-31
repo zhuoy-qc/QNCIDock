@@ -1,4 +1,4 @@
-name: picationdock
+name: QNCIDock
 channels:
   - pyg
   - pytorch
