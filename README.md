@@ -4,7 +4,7 @@ To use our docking method, you need to prepare the protonated protein in PDB for
 
 ## Framework overview
 
-![Overview](model_illustration.png)
+![Overview](workflow.png)
 
 
 
