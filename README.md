@@ -3,7 +3,9 @@ A method trained on DLPNO-CCSD(T) dimer interaction energies for quantitatively 
 To use our docking method, you need to prepare the protonated protein in PDB format and the ligand's initial position in SDF format. 
 
 ## Framework overview
-![Workflow Illustration](workflow_illustration.png)
+
+![Figure 1B](fig1b.png)
+
 
 
 
