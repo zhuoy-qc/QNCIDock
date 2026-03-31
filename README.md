@@ -117,6 +117,7 @@ python model_predict_energies.py
 Model_predict_energies.py will generate many plipfixed_*.pdb and *_protonated.pdb files; you can delete them after the code finishes.
 For evaluation :
 ```bash
+python count_true_negatives.py
 python tight_cutoff_evaluation.py
 python loose_cutoff_evaluation.py
 python errors_relative_to_experimental_inteactions.py
