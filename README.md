@@ -10,7 +10,11 @@ To use our docking method, you need to prepare the protonated protein in PDB for
 
 
 ## Environments
-First, clone our repo. Then, we recommend using Conda to set up the environment.
+First, clone our repo. 
+```bash
+gh repo clone zhuoy-qc/QNCIDock
+```
+Then, we recommend using Conda to set up the environment.
 ```bash
 conda env create -f QNCIDock.yml
 ```
@@ -126,7 +130,7 @@ python errors_relative_to_experimental_inteactions.py
 
 
 ## Citation 
-Please cite our paper if you find it helpful. Thank you!
+Please cite our  arxiv preprint if you find it helpful. Thank you!
 
 ## OS
 The code has been tested on CentOS Linux Version 8.
