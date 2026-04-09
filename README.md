@@ -151,7 +151,6 @@ DOI: [10.26434/chemrxiv.15001781/v1](https://chemrxiv.org/doi/abs/10.26434/chemr
   year    = {2026},
   doi     = {10.26434/chemrxiv.15001781/v1},
   url     = {https://chemrxiv.org/doi/abs/10.26434/chemrxiv.15001781/v1},
-  eprint  = {https://chemrxiv.org/doi/pdf/10.26434/chemrxiv.15001781/v1}
 }
 ```
 
