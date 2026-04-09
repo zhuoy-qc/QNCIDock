@@ -153,10 +153,10 @@ DOI: [10.26434/chemrxiv.15001781/v1](https://chemrxiv.org/doi/abs/10.26434/chemr
   url     = {https://chemrxiv.org/doi/abs/10.26434/chemrxiv.15001781/v1},
   eprint  = {https://chemrxiv.org/doi/pdf/10.26434/chemrxiv.15001781/v1}
 }
+```
 
 
-
-## OS
+### OS
 The code has been tested on CentOS Linux Version 8.
 
 
