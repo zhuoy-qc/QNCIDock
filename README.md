@@ -130,7 +130,20 @@ python errors_relative_to_experimental_inteactions.py
 
 
 ## Citation 
-Please cite our  preprint  https://chemrxiv.org/doi/full/10.26434/chemrxiv.15001781/v1 if you find it helpful. Thank you!
+@article{
+doi:10.26434/chemrxiv.15001781/v1,
+author = {Zhuo Yin  and Jun Yang },
+title = {Quantum chemical energy-based cation-π interaction recovers protein-ligand docking poses in cationic pocket},
+journal = {ChemRxiv},
+volume = {2026},
+number = {0409},
+pages = {},
+year = {2026},
+doi = {10.26434/chemrxiv.15001781/v1},
+URL = {https://chemrxiv.org/doi/abs/10.26434/chemrxiv.15001781/v1},
+eprint = {https://chemrxiv.org/doi/pdf/10.26434/chemrxiv.15001781/v1},
+
+
 
 ## OS
 The code has been tested on CentOS Linux Version 8.
