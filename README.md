@@ -130,7 +130,7 @@ python errors_relative_to_experimental_inteactions.py
 
 ## Citation
 
-If you use this work, please cite:
+If you find this work helful, please cite:
 
 **Quantum chemical energy-based cation-π interaction recovers protein-ligand docking poses in cationic pocket**  
 Zhuo Yin, Jun Yang  
