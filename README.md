@@ -130,18 +130,29 @@ python errors_relative_to_experimental_inteactions.py
 
 
 ## Citation 
-@article{
-doi:10.26434/chemrxiv.15001781/v1,
-author = {Zhuo Yin  and Jun Yang },
-title = {Quantum chemical energy-based cation-π interaction recovers protein-ligand docking poses in cationic pocket},
-journal = {ChemRxiv},
-volume = {2026},
-number = {0409},
-pages = {},
-year = {2026},
-doi = {10.26434/chemrxiv.15001781/v1},
-URL = {https://chemrxiv.org/doi/abs/10.26434/chemrxiv.15001781/v1},
-eprint = {https://chemrxiv.org/doi/pdf/10.26434/chemrxiv.15001781/v1},
+## Citation
+
+If you use this work, please cite:
+
+**Quantum chemical energy-based cation-π interaction recovers protein-ligand docking poses in cationic pocket**  
+Zhuo Yin, Jun Yang  
+*ChemRxiv*, 2026.  
+DOI: [10.26434/chemrxiv.15001781/v1](https://chemrxiv.org/doi/abs/10.26434/chemrxiv.15001781/v1)  
+[PDF Download](https://chemrxiv.org/doi/pdf/10.26434/chemrxiv.15001781/v1)
+
+### BibTeX
+```bibtex
+@article{doi:10.26434/chemrxiv.15001781/v1,
+  author  = {Zhuo Yin and Jun Yang},
+  title   = {Quantum chemical energy-based cation-π interaction recovers protein-ligand docking poses in cationic pocket},
+  journal = {ChemRxiv},
+  volume  = {2026},
+  number  = {0409},
+  year    = {2026},
+  doi     = {10.26434/chemrxiv.15001781/v1},
+  url     = {https://chemrxiv.org/doi/abs/10.26434/chemrxiv.15001781/v1},
+  eprint  = {https://chemrxiv.org/doi/pdf/10.26434/chemrxiv.15001781/v1}
+}
 
 
 
