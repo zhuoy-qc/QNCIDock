@@ -1,6 +1,6 @@
 
 ## Overview
-A method trained on DLPNO-CCSD(T) dimer interaction energies for quantitatively evaluating non—covalent interaction strength and guiding docking ligand into  cationic protein binding pocket. 
+An SOTA method (evaluated on PoseBusters, DeepDockingDare, DockGen cationic binding pocket subsets) trained on DLPNO-CCSD(T) dimer interaction energies for quantitatively evaluating non—covalent interaction strength and guiding docking ligand into  cationic protein binding pocket. 
 To use our docking method, you need to prepare the protonated protein in PDB format and the ligand's initial position in SDF format. 
 
 ## Framework overview
